@@ -1,10 +1,16 @@
+mod html;
+
+use std::fs::{copy, File};
 use std::io::Write;
 use pdf_writer::types::{BorderType, AnnotationFlags, AnnotationType};
 use docx_rs::{*};
-use chrono::Local;
+use std::path::{Path, PathBuf};
+use html_to_pdf_lib::html_to_pdf;
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use pdf_writer::types::FieldType;
 use pdf_writer::writers::Annotation;
+use tauri::utils::tokens::path_buf_lit;
+use crate::html::clean_and_set_song_font;
 // Create a new handle
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -16,6 +22,7 @@ fn greet(name: &str) -> String {
 struct Document{
     pub title: String,
     pub text: String,
+    pub from_who: String,
     pub picture: Vec<String>
 }
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -29,11 +36,11 @@ struct Page{
     pub title: String,
     pub has_top: bool,
     pub top:Top,
+    pub editors: String,
     pub page: Vec<Document>
 }
 #[tauri::command]
-fn save_typesetting_as_pdf(page:Page,path: String){
-    let path = std::path::Path::new(path.as_str());
+fn save_typesetting_as_pdf(page:&Page,path: &Path) {
     let mut file = std::fs::File::create(path).unwrap();
     let mut pdf = Pdf::new();
     let catalog_id = Ref::new(1);
@@ -114,12 +121,52 @@ fn save_typesetting_as_pdf(page:Page,path: String){
     ()
 }
 
+fn save_article_as_pdf(article:&Document, path: &Path) {
+    let html=clean_and_set_song_font(article.title.as_str(),
+                                     article.from_who.as_str(), article.text.as_str());
+    html_to_pdf(html.as_str(), path).unwrap();
+}
+
+#[tauri::command]
+fn save(page: Page, path: &str){
+    let path_obj=Path::new(&path);
+    let mut path_buf=PathBuf::from(path_obj);
+    let mut path_buf_2=PathBuf::from(path_obj);
+    path_buf_2.pop();
+    let path_obj=path_buf.as_path();
+    let typesetting_path=path_buf.as_path();
+    save_typesetting_as_pdf(&page,typesetting_path);
+
+    for article in &page.page {
+        let mut path_buf=PathBuf::from(path_obj);
+        path_buf.push(page.title.as_str());
+        std::fs::create_dir(path_buf.as_path()).unwrap();
+        path_buf.push(page.title.as_str());
+        path_buf.set_extension("pdf");
+        let article_path=path_buf.as_path();
+        save_article_as_pdf(article,article_path);
+        let num_list=vec!["图一","图二","图三","图四","图五","图六","图七","图八","图九","图十"];
+        let mut i=0;
+        while i<article.picture.len() {
+            let mut path_buf=PathBuf::from(path_obj);
+            path_buf.push(page.title.as_str());
+            path_buf.push(num_list[i]);
+            path_buf.set_extension(
+                article.picture[i].split(".")[-1]
+            );
+            copy(Path::new(&article.picture[i]), path_buf.as_path()).unwrap();
+        }
+    }
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![save])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
