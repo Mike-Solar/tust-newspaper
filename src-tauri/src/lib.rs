@@ -17,6 +17,7 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 #[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct Document{
     pub title: String,
     pub text: String,
@@ -25,12 +26,14 @@ struct Document{
     pub words: i32
 }
 #[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct Top{
     pub title: String,
     pub text: String,
     pub words: i32
 }
 #[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 struct NewsPage{
     pub num_of_pages: i32,
     pub date_and_num:String,
@@ -40,15 +43,7 @@ struct NewsPage{
     pub editors: String,
     pub page: Vec<Document>
 }
-struct ret_value<'a>{
-    pdf: Pdf,
-    pdf_page: Page<'a>,
-    i:i32
-}
-fn print_top<'a>(page:&'a NewsPage,
-             mut pdf: Pdf,
-             mut pdf_page: pdf_writer::writers::Page<'a>,
-             i: i32) ->ret_value<'a>
+fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
 {
     // 常用数值定义
     let a4_height:f32=841.9;
@@ -64,7 +59,7 @@ fn print_top<'a>(page:&'a NewsPage,
     let mut title_id:Ref;
     // 标题行
     title_content_id=Ref::new(i);
-    pdf_page.contents(title_content_id);
+    pdf.page(*page_id).contents(title_content_id);
     i=i+1;
     let to_line=a4_height-up_white-pt5_size-2.0;
     let mut title_content=Content::new();
@@ -78,7 +73,7 @@ fn print_top<'a>(page:&'a NewsPage,
 
     //日期和版数
     date_content_id=Ref::new(i);
-    pdf_page.contents(date_content_id);
+    pdf.page(*page_id).contents(date_content_id);
     i+=1;
     let mut date_content=Content::new();
     date_content.rect(left_white, a4_height-to_line-pt3_size-10.0,
@@ -95,8 +90,7 @@ fn print_top<'a>(page:&'a NewsPage,
     //头版
     headline_id = Ref::new(i);
     i+=1;
-    pdf_page.contents(headline_id);
-    let mut headline_annot = pdf.annotation(headline_id);
+    pdf.page(*page_id).contents(headline_id);
     let headline_content_id=Ref::new(i);
     i+=1;
     let mut headline_content2=Content::new();
@@ -116,13 +110,8 @@ fn print_top<'a>(page:&'a NewsPage,
     headline_content2.set_line_width(1.0);
     headline_content2.end_text();
     pdf.stream(headline_content_id, &headline_content2.finish());
-    return ret_value{
-        pdf,
-        pdf_page,
-        i
-    };
 }
-fn print_body<'a>(page: &'a NewsPage, mut pdf:Pdf, mut pdf_page:pdf_writer::writers::Page<'a>, i: i32) ->ret_value<'a>
+fn print_body(page: & NewsPage, pdf:&mut Pdf, page_id: &Ref, mut i: i32)
 {
     let a4_height:f32=841.9;
     let a4_width:f32=595.3;
@@ -136,9 +125,9 @@ fn print_body<'a>(page: &'a NewsPage, mut pdf:Pdf, mut pdf_page:pdf_writer::writ
     let num_of_articles=page.page.len();
     let y2:f32=(y1-up_white)/(num_of_articles as f32) - 10.0;
     // 文章
-    for doc in page.page {
+    for doc in page.clone().page.into_iter() {
         let mut myref=Ref::new(i);
-        pdf_page.contents(myref);
+        pdf.page(*page_id).contents(myref);
         i+=1;
         let mut page_content=Content::new();
         page_content.rect(x1, y1, x2, y2);
@@ -156,11 +145,6 @@ fn print_body<'a>(page: &'a NewsPage, mut pdf:Pdf, mut pdf_page:pdf_writer::writ
         pdf.stream(myref, &page_content.finish());
         y1+=y2;
     }
-    return ret_value{
-        pdf,
-        pdf_page,
-        i
-    };
 }
 fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     // 常用数值定义
@@ -185,10 +169,11 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     pdf.catalog(catalog_id).pages(page_tree_id);
     // 页面
     pdf.pages(page_tree_id).kids([page_id]).count(1);
-    let mut pdf_page = pdf.page(page_id);
-    pdf_page.contents(head_content_id);
-    pdf_page.contents(page_number_id);
-    pdf_page.contents(headline_content_id);
+    ;
+
+    pdf.page(page_id).contents(head_content_id);
+    pdf.page(page_id).contents(page_number_id);
+    pdf.page(page_id).contents(headline_content_id);
 
     // "x版"
     let mut page_num_content=Content::new();
@@ -200,6 +185,7 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     page_num_content.show(Str(content_str.as_bytes()));
     page_num_content.end_text();
     pdf.stream(page_number_id, &page_num_content.finish());
+
 
     // "本期编辑"和抬头
     let mut head_content=Content::new();
@@ -222,14 +208,14 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
 
     // 如果有头版
     if page.has_top {
-        let ret= print_top(&page, pdf, pdf_page, i);
-        pdf=ret.pdf;
-        pdf_page=ret.pdf_page;
+        print_top(&page, &mut pdf, &page_id, i);
+
     }
-    let ret= print_body(&page, pdf, pdf_page, i);
-    pdf=ret.pdf;
-    pdf_page=ret.pdf_page;
-    pdf_page.finish();
+    {
+        print_body(&page, &mut pdf,&page_id, i);
+    }
+
+    pdf.page(page_id).finish();
     let _ = file.write(&*pdf.finish());
     ()
 }

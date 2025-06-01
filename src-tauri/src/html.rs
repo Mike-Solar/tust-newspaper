@@ -89,7 +89,7 @@ fn modify_node(handle: &mut Handle) {
 
     for child in children.iter() {
         match child.data {
-            markup5ever_rcdom::NodeData::Element { ref name, ref mut attrs, .. } => {
+            markup5ever_rcdom::NodeData::Element { ref name, ref attrs, .. } => {
                 if is_selected_tags(name.local.as_ref()){
                     for mut attr in attrs.borrow_mut().iter_mut() {
                         if attr.name.local.to_string() == "style"{
