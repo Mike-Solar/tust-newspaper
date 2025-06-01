@@ -40,15 +40,15 @@ struct NewsPage{
     pub editors: String,
     pub page: Vec<Document>
 }
-struct ret_value{
+struct ret_value<'a>{
     pdf: Pdf,
-    pdf_page: Page,
+    pdf_page: Page<'a>,
     i:i32
 }
-fn print_top(page:&NewsPage,
+fn print_top<'a>(page:&'a NewsPage,
              mut pdf: Pdf,
-             mut pdf_page: pdf_writer::writers::Page,
-             i: i32) ->ret_value
+             mut pdf_page: pdf_writer::writers::Page<'a>,
+             i: i32) ->ret_value<'a>
 {
     // 常用数值定义
     let a4_height:f32=841.9;
@@ -122,7 +122,7 @@ fn print_top(page:&NewsPage,
         i
     };
 }
-fn print_body(page: &NewsPage, mut pdf:Pdf, mut pdf_page:pdf_writer::writers::Page, i: i32) ->ret_value
+fn print_body<'a>(page: &'a NewsPage, mut pdf:Pdf, mut pdf_page:pdf_writer::writers::Page<'a>, i: i32) ->ret_value<'a>
 {
     let a4_height:f32=841.9;
     let a4_width:f32=595.3;

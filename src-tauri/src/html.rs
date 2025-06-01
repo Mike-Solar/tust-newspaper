@@ -18,6 +18,7 @@ use markup5ever::interface::tree_builder::TreeSink;
 use regex::Regex;
 use serde::__private::de::IdentifierDeserializer;
 use serde::Serialize;
+use serde_json::to_string;
 
 fn sanitize_for_newspaper(html: &str) -> String {
     // 配置允许的HTML标签白名单
@@ -57,14 +58,14 @@ pub fn clean_and_set_song_font(title: &str, from_who: &str, html: &str) -> Strin
     // 获取处理后的HTML字符串
     let mut html=dom.finish();
     let mut buf = Vec::new();
-    let mut doc;SerializableHandle=html.document.clone().into();
-    let _=serialize(&buf, &doc, Default::default());
-    let mut html=String::from_utf8(buf).unwrap();
+    let mut doc:SerializableHandle=html.document.clone().into();
+    let _=serialize(&mut buf, &doc, Default::default());
+    let mut html=core::str::from_utf8(&buf.as_slice()).unwrap().to_string();
     // 读取模板
     let mut f =File::open("template.html").unwrap();
     let mut contents:Box<[u8]>=Box::new([]);
     f.read(&mut *contents).expect("Read failed.");
-    let mut contents = str::from_utf8(&contents).unwrap().to_string();
+    let mut contents = core::str::from_utf8(&contents).unwrap().to_string();
     html.insert_str(html.find("<p>").unwrap()+"<p>".len(),
                     ("<span id=\"from\">".to_string() + from_who + "</span>").as_str());
     contents.replace("Content", html.as_str());
@@ -91,7 +92,7 @@ fn modify_node(handle: &mut Handle) {
             markup5ever_rcdom::NodeData::Element { ref name, ref mut attrs, .. } => {
                 if is_selected_tags(name.local.as_ref()){
                     for mut attr in attrs.borrow_mut().iter_mut() {
-                        if attr.name().as_ref() == "style"{
+                        if attr.name.local.to_string() == "style"{
                             let name=QualName::new(
                                 None,
                                 ns!(html),
