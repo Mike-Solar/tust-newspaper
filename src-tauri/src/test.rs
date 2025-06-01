@@ -13,7 +13,7 @@ fn test_write_typesetting(){
             words: 6
         },
         editors: "ccc ddd".to_string(),
-        page: vec![]
+        articles: vec![]
     };
     let path= std::path::Path::new("aaa.pdf");
     save_typesetting_as_pdf(&page, path);

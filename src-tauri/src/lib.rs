@@ -1,8 +1,10 @@
 mod html;
 mod test;
+mod config;
 
+use crate::config::{get_etc_path, ConfigError};
 use std::fs::{copy, File};
-use std::io::Write;
+use std::io::{Error, Read, Write};
 use docx_rs::{*};
 use std::path::{Path, PathBuf};
 use html_to_pdf_lib::html_to_pdf;
@@ -12,6 +14,7 @@ use crate::html::clean_and_set_song_font;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 // Create a new handle
 
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -19,7 +22,7 @@ fn greet(name: &str) -> String {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone)]
-struct Document{
+struct Article{
     pub title: String,
     pub text: String,
     pub from_who: String,
@@ -42,7 +45,7 @@ struct NewsPage{
     pub has_top: bool,
     pub top:Top,
     pub editors: String,
-    pub page: Vec<Document>
+    pub articles: Vec<Article>
 }
 fn print_top(page:& NewsPage, mut pdf: &mut Pdf, mut i: i32)
     -> (i32, Vec<Ref>)
@@ -123,11 +126,11 @@ fn print_body(page: & NewsPage, pdf:&mut Pdf, mut i: i32) -> (i32, Vec<Ref>)
     let x1:f32=left_white;
     let x2:f32=a4_height-left_white*2.0;
 
-    let num_of_articles=page.page.len();
+    let num_of_articles=page.articles.len();
     let y2:f32=(y1-up_white)/(num_of_articles as f32) - 10.0;
     let mut refs=Vec::new();
     // 文章
-    for doc in page.clone().page.into_iter() {
+    for doc in page.clone().articles.into_iter() {
         let mut myref=Ref::new(i);
         i+=1;
         refs.push(myref);
@@ -149,87 +152,84 @@ fn print_body(page: & NewsPage, pdf:&mut Pdf, mut i: i32) -> (i32, Vec<Ref>)
     }
     return (i, refs);
 }
-fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
-    // 常用数值定义
-    let a4_height:f32=841.9;
-    let a4_width:f32=595.3;
-    let up_white:f32=90.1;
-    let left_white:f32=72.0;
-    let pt5_size:f32=10.5;
-    let pt3_size:f32=16.0;
 
-    let mut file = std::fs::File::create(path).unwrap();
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let page_number_id= Ref::new(4);
-    let mut head_content_id:Ref = Ref::new(5);
-    let mut headline_content_id:Ref = Ref::new(6);
-
-    let mut i=7;
-
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    // 页面
-    pdf.pages(page_tree_id).kids([page_id]).count(1);
-
-    // "x版"
-    let mut page_num_content=Content::new();
-    let content_str=page.num_of_pages.to_string()+"版";
-    page_num_content.rect(left_white, a4_height-up_white,
-                      (content_str.len() as f32)*pt5_size, pt5_size);
-    page_num_content.begin_text();
-    page_num_content.set_font(Name(b"SimSong"), pt5_size);
-    page_num_content.show(Str(content_str.as_bytes()));
-    page_num_content.end_text();
-    pdf.stream(page_number_id, &page_num_content.finish());
-
-    // "本期编辑"和抬头
-    let mut head_content=Content::new();
-    let mut head_str=page.title.clone()+" 本版编辑："+page.editors.as_str();
-    head_content.rect(a4_width-((head_str.len() as f32)*pt5_size), a4_height-up_white,
-                      (head_str.len() as f32)*pt5_size, pt5_size);
-    head_content.begin_text();
-    head_content.set_font(Name(b"SimSong"), pt5_size);
-    head_content.show(Str(head_str.as_bytes()));
-    head_content.end_text();
-    pdf.stream(head_content_id, &head_content.finish());
-    let mut refs:Vec<Ref>= Vec::new();
-
-    //下面那条横线
-    let mut headline_content=Content::new();
-    headline_content.set_line_width(1.0);
-    headline_content.move_to(left_white, a4_height-up_white-pt5_size-1.0);
-    headline_content.line_to(a4_width-left_white,a4_height-up_white-pt5_size-1.0);
-    pdf.stream(headline_content_id, &headline_content.finish());
-    let mut tup=(i, vec![]);
-    let tup2;
-    // 如果有头版
-    if page.has_top {
-        tup=print_top(&page, &mut pdf, i);
+fn get_template_path(len:usize, has_top:bool)->Box<Path>{
+    let template_name;
+    if(has_top) {
+        template_name="template-head".to_string()
+            
     }
-    tup2=print_body(&page, &mut pdf, i);
-
-    let mut pdf_page =pdf.page(page_id);
-    pdf_page.parent(page_tree_id);
-    pdf_page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
-    pdf_page.contents(head_content_id);
-    pdf_page.contents(page_number_id);
-    pdf_page.contents(headline_content_id);
-    if(page.has_top){
-        for j in tup.1 {
-            pdf_page.contents(j);
-        }
+    else { 
+        template_name = "template".to_string()+len.to_string().as_str();
     }
-    for j in tup2.1 {
-        pdf_page.contents(j);
+    
+    let template_name=template_name+len.to_string().as_str()+".html";
+    let mut template_path=get_etc_path();
+    template_path.push(&template_name);
+    Box::from(template_path.as_path())
+}
+fn insert_articles(page: &NewsPage, path: Box<Path>) -> Result<String, ConfigError>{
+    let mut buf:Vec<u8>=Vec::new();
+    let mut file=match File::open(path.clone()) {
+        Ok(file) => file,
+        Err(E)=>return Err(ConfigError::new("配置文件路径不可用"))
+    };
+    let _ = file.read_to_end(&mut buf).unwrap();
+    let mut html=String::from_utf8(buf).unwrap();
+    let i=1;
+    for article in page.clone().articles.into_iter() {
+        html=html.replace(("{Title".to_string()+i.to_string().as_str()+"}").as_str(),
+                          (article.words.to_string()+article.title.as_str()).as_str());
     }
-    pdf_page.finish();
-    let _ = file.write(&*pdf.finish());
-    ()
+    Ok(html)
 }
 
-fn save_article_as_pdf(article:&Document, path: &Path) {
+fn insert_top(page: &NewsPage, html: &String) -> String{
+    let mut template=html.clone();
+    let template=template.replace("{TopTitle}", 
+                     (page.top.words.to_string()+page.top.title.as_str()).as_str());
+    return template;
+}
+fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) ->Result<String, impl std::error::Error> {
+    let mut template_path:&Path;
+    let mut html:String;
+    if page.has_top {
+        if !(1<=page.articles.len() && page.articles.len()<=4){
+            return Err(ConfigError::new("必须有1篇到4篇文章"));
+        }
+        let template_path=get_template_path(page.articles.len(), true);
+        html=match insert_articles(page, template_path)
+        {
+            Ok(content) => content,
+            Err(E) => return Err(E)
+        };
+        html=insert_top(page, &html);
+    }
+    else{
+        if !(1<=page.articles.len() && page.articles.len()<=5){
+            return Err(ConfigError::new("必须有1篇到5篇文章"));
+        }
+        let template_path=get_template_path(page.articles.len(), false);
+        html=match insert_articles(page, template_path)
+        {
+            Ok(content) => content,
+            Err(E) => return Err(E)
+        };
+    }
+    let html=html.replace("{TopTitle}",
+                                  page.title.as_str());
+    let html=html.replace("{Editors}",
+                          page.editors.as_str());
+    let html=html.replace("{Page}",
+                          page.num_of_pages.to_string().as_str());
+    match html_to_pdf(html.as_str(), path){
+        Ok(_)=>"OK",
+        Err(E)=>return Err(ConfigError::new("无法从HTML转为PDF"))
+    };
+    Ok(html.to_string())
+}
+
+fn save_article_as_pdf(article:&Article, path: &Path) {
     let html=clean_and_set_song_font(article.title.as_str(),
                                      article.from_who.as_str(), article.text.as_str());
     html_to_pdf(html.as_str(), path).unwrap();
@@ -244,7 +244,7 @@ fn save(page: NewsPage, path: &str){
     let path_obj=path_buf.as_path();
     let typesetting_path=path_buf.as_path();
     save_typesetting_as_pdf(&page,typesetting_path);
-    for article in &page.page {
+    for article in &page.articles {
         let mut path_buf=PathBuf::from(path_obj);
         path_buf.push(page.title.as_str());
         std::fs::create_dir(path_buf.as_path()).unwrap();

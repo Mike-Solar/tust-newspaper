@@ -63,8 +63,8 @@ pub fn clean_and_set_song_font(title: &str, from_who: &str, html: &str) -> Strin
     let mut html=core::str::from_utf8(&buf.as_slice()).unwrap().to_string();
     // 读取模板
     let mut f =File::open("template-content.html").unwrap();
-    let mut contents:Box<[u8]>=Box::new([]);
-    f.read(&mut *contents).expect("Read failed.");
+    let mut contents:Vec<u8>=Vec::new();
+    f.read_to_end(&mut contents).expect("Read failed.");
     let mut contents = core::str::from_utf8(&contents).unwrap().to_string();
     html.insert_str(html.find("<p>").unwrap()+"<p>".len(),
                     ("<span id=\"from\">".to_string() + from_who + "</span>").as_str());
