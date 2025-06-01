@@ -1,11 +1,12 @@
 mod html;
+mod test;
 
 use std::fs::{copy, File};
 use std::io::Write;
 use docx_rs::{*};
 use std::path::{Path, PathBuf};
 use html_to_pdf_lib::html_to_pdf;
-use pdf_writer::{Content, Finish, Name, Pdf, Ref, Str, TextStr};
+use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 use pdf_writer::writers::Page;
 use crate::html::clean_and_set_song_font;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -43,7 +44,8 @@ struct NewsPage{
     pub editors: String,
     pub page: Vec<Document>
 }
-fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
+fn print_top(page:& NewsPage, mut pdf: &mut Pdf, mut i: i32)
+    -> (i32, Vec<Ref>)
 {
     // 常用数值定义
     let a4_height:f32=841.9;
@@ -59,7 +61,6 @@ fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
     let mut title_id:Ref;
     // 标题行
     title_content_id=Ref::new(i);
-    pdf.page(*page_id).contents(title_content_id);
     i=i+1;
     let to_line=a4_height-up_white-pt5_size-2.0;
     let mut title_content=Content::new();
@@ -73,7 +74,6 @@ fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
 
     //日期和版数
     date_content_id=Ref::new(i);
-    pdf.page(*page_id).contents(date_content_id);
     i+=1;
     let mut date_content=Content::new();
     date_content.rect(left_white, a4_height-to_line-pt3_size-10.0,
@@ -86,15 +86,15 @@ fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
     pdf.stream(date_content_id, &date_content.finish());
 
     title_id=Ref::new(i);
+    i=i+1;
 
     //头版
     headline_id = Ref::new(i);
     i+=1;
-    pdf.page(*page_id).contents(headline_id);
     let headline_content_id=Ref::new(i);
     i+=1;
     let mut headline_content2=Content::new();
-    headline_content2.rect(a4_width-left_white, a4_height-to_line-10.0,
+    headline_content2.rect(a4_width-left_white, to_line-10.0-a4_height,
                            (a4_width-left_white*2.0)/2.0, 340.1);
     headline_content2.begin_text();
     headline_content2.set_font(Name(b"SimSong"), pt5_size);
@@ -110,8 +110,9 @@ fn print_top(page:& NewsPage, mut pdf: &mut Pdf, page_id: &Ref, mut i: i32)
     headline_content2.set_line_width(1.0);
     headline_content2.end_text();
     pdf.stream(headline_content_id, &headline_content2.finish());
+    return (i, vec![headline_id, title_content_id, date_content_id, title_id, headline_content_id]);
 }
-fn print_body(page: & NewsPage, pdf:&mut Pdf, page_id: &Ref, mut i: i32)
+fn print_body(page: & NewsPage, pdf:&mut Pdf, mut i: i32) -> (i32, Vec<Ref>)
 {
     let a4_height:f32=841.9;
     let a4_width:f32=595.3;
@@ -124,11 +125,12 @@ fn print_body(page: & NewsPage, pdf:&mut Pdf, page_id: &Ref, mut i: i32)
 
     let num_of_articles=page.page.len();
     let y2:f32=(y1-up_white)/(num_of_articles as f32) - 10.0;
+    let mut refs=Vec::new();
     // 文章
     for doc in page.clone().page.into_iter() {
         let mut myref=Ref::new(i);
-        pdf.page(*page_id).contents(myref);
         i+=1;
+        refs.push(myref);
         let mut page_content=Content::new();
         page_content.rect(x1, y1, x2, y2);
         page_content.begin_text();
@@ -145,6 +147,7 @@ fn print_body(page: & NewsPage, pdf:&mut Pdf, page_id: &Ref, mut i: i32)
         pdf.stream(myref, &page_content.finish());
         y1+=y2;
     }
+    return (i, refs);
 }
 fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     // 常用数值定义
@@ -169,11 +172,6 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     pdf.catalog(catalog_id).pages(page_tree_id);
     // 页面
     pdf.pages(page_tree_id).kids([page_id]).count(1);
-    ;
-
-    pdf.page(page_id).contents(head_content_id);
-    pdf.page(page_id).contents(page_number_id);
-    pdf.page(page_id).contents(headline_content_id);
 
     // "x版"
     let mut page_num_content=Content::new();
@@ -185,7 +183,6 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     page_num_content.show(Str(content_str.as_bytes()));
     page_num_content.end_text();
     pdf.stream(page_number_id, &page_num_content.finish());
-
 
     // "本期编辑"和抬头
     let mut head_content=Content::new();
@@ -205,17 +202,29 @@ fn save_typesetting_as_pdf(page:&NewsPage,path: &Path) {
     headline_content.move_to(left_white, a4_height-up_white-pt5_size-1.0);
     headline_content.line_to(a4_width-left_white,a4_height-up_white-pt5_size-1.0);
     pdf.stream(headline_content_id, &headline_content.finish());
-
+    let mut tup=(i, vec![]);
+    let tup2;
     // 如果有头版
     if page.has_top {
-        print_top(&page, &mut pdf, &page_id, i);
-
+        tup=print_top(&page, &mut pdf, i);
     }
-    {
-        print_body(&page, &mut pdf,&page_id, i);
-    }
+    tup2=print_body(&page, &mut pdf, i);
 
-    pdf.page(page_id).finish();
+    let mut pdf_page =pdf.page(page_id);
+    pdf_page.parent(page_tree_id);
+    pdf_page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
+    pdf_page.contents(head_content_id);
+    pdf_page.contents(page_number_id);
+    pdf_page.contents(headline_content_id);
+    if(page.has_top){
+        for j in tup.1 {
+            pdf_page.contents(j);
+        }
+    }
+    for j in tup2.1 {
+        pdf_page.contents(j);
+    }
+    pdf_page.finish();
     let _ = file.write(&*pdf.finish());
     ()
 }

@@ -135,7 +135,8 @@ const save_to=()=>{
     <h2>{{"本版共"+totalWords+"字"}}</h2>
     <div class="title">
       <el-checkbox class="top" label="是第一版" v-model="isMain"></el-checkbox>
-      <el-input class="top" v-model="num_of_page"></el-input>
+      <label class="top" for="num_of_page">第几版</label>
+      <el-input id="num_of_page" class="top" v-model="num_of_page"></el-input>
       <label class="top" for="title">标题</label>
       <el-input class="top" id="title" label="标题" v-model="title"></el-input>
       <label class="top" for="editors">编辑</label>
